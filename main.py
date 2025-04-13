@@ -1,25 +1,18 @@
 import argparse
 import os
 import pathlib
-import math
+from collections import defaultdict
 from typing import Optional
 
 
-def fuzzy_match(query: str, candidate: str) -> bool:
-    if len(query) == 0:
-        return True
-    remainder = query
+def fuzzy_match(query: str, candidate: str) -> Optional[int]:
+    matrix: list[list[Optional[int]]] = [
+        [None for _ in range(len(candidate))] for _ in range(len(query))
+    ]
+    candidate_char_dict = defaultdict(lambda: list())
+    for i, c in enumerate(candidate):
+        candidate_char_dict[c].append(i)
 
-    for char in candidate:
-        if char == remainder[0]:
-            remainder = remainder[1:]
-            if len(remainder) == 0:
-                return True
-    return False
-
-
-def fuzzy_match2(query: str, candidate: str) -> Optional[int]:
-    matrix : list[list[Optional[int]]] = [[None for _ in range(len(candidate))] for _ in range(len(query))]
     prev_matches = []
     for i, q in enumerate(query):
         curr_matches = []
@@ -32,13 +25,18 @@ def fuzzy_match2(query: str, candidate: str) -> Optional[int]:
             else:
                 return None
         else:
-            for j1, j2 in zip(prev_matches, prev_matches[1:] + [len(candidate)]):
-                for j in range(j1 + 1, j2):
-                    if candidate[j] == q:
-                        new_score = 1 + matrix[i - 1][j1] - (j - j1 - 1)
-                        old_score = matrix[i][j]
-                        matrix[i][j] = new_score if old_score is None else max(old_score, new_score) 
-                        curr_matches.append(j)
+            search_start_idx = min(prev_matches)
+            for candidate_idx in candidate_char_dict[q]:
+                possible_scores = []
+                for j in range(search_start_idx, candidate_idx):
+                    old_score = matrix[i - 1][j]
+                    if old_score is not None:
+                        gap_penalty = candidate_idx - j - 1
+                        possible_scores.append(old_score - gap_penalty)
+                if possible_scores:
+                    curr_matches.append(candidate_idx)
+                    matrix[i][candidate_idx] = 1 + max(possible_scores)
+
         prev_matches = curr_matches
 
     scores = [int(s) for s in matrix[-1] if s is not None]
@@ -58,10 +56,10 @@ def main():
         raise Exception("invalid search directory")
 
     results = []
-    for root, dirs, files in search_directory.walk():
+    for root, _, files in search_directory.walk():
         for file in files:
             d = root / file
-            score = fuzzy_match2(query, d.as_posix())
+            score = fuzzy_match(query, d.as_posix())
             if score is not None:
                 results.append((score, d))
 
