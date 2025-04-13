@@ -4,6 +4,8 @@ import pathlib
 from collections import OrderedDict, defaultdict
 from typing import Optional
 
+from sortedcontainers import SortedList
+
 
 def fuzzy_match(query: str, candidate: str) -> Optional[int]:
     # Use a nested dictionary instead of an actual matrix for performance
@@ -60,15 +62,13 @@ def main():
     if not search_directory.is_dir():
         raise Exception("invalid search directory")
 
-    results = []
+    results = SortedList()
     for root, _, files in os.walk(search_directory):
         for file in files:
             d = os.path.join(root, file)
             score = fuzzy_match(query, d)
             if score is not None:
-                results.append((score, d))
-
-    results.sort()
+                results.add((score, d))
 
     for _, d in results:
         print(d)
