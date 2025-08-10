@@ -7,6 +7,11 @@ MATCH_SCORE = 12
 MISMATCH_PENALTY = 6
 GAP_OPEN_PENALTY = 5
 GAP_EXTEND_PENALTY = 1
+CAPITALIZATION_BONUS = 4
+MATCHING_CASE_BONUS = 4
+EXACT_MATCH_BONUS = 8
+PREFIX_BONUS = 12
+OFFSET_PREFIX_BONUS = 8
 
 
 def build_scores(needle, haystack):
@@ -17,14 +22,53 @@ def build_scores(needle, haystack):
 
     for i in range(1, num_rows):
         needle_char = needle[i - 1]
+        needle_is_uppercase = needle_char.isupper()
+        needle_char = needle_char.lower()
+
         insert_gap_mask = True
         delete_gap_mask = True
+        prev_haystack_is_lowercase = False
 
         for j in range(1, num_cols):
-            haystack_char = haystack[j - 1]
-            match_score = prev[j - 1] + (
-                MATCH_SCORE if needle_char == haystack_char else -MISMATCH_PENALTY
+            # Is first letter?
+            is_prefix = j == 1
+            # Is the first letter some kind of delimiter like an underscore,
+            # and that we didn't match on it previously?
+            is_offset_prefix = (
+                j == 2
+                and prev[0] == 0
+                and not (haystack[0].isalpha() and haystack[0].isascii())
             )
+
+            haystack_char = haystack[j - 1]
+            haystack_is_uppercase = haystack_char.isupper()
+            haystack_is_lowercase = haystack_char.islower()
+            haystack_char = haystack_char.lower()
+
+            matched_cased_mask = needle_is_uppercase == haystack_is_uppercase
+
+            if needle_char == haystack_char:
+                if is_prefix:
+                    match_score = prev[j - 1] + MATCH_SCORE + PREFIX_BONUS
+                elif is_offset_prefix:
+                    match_score = prev[j - 1] + MATCH_SCORE + OFFSET_PREFIX_BONUS
+                else:
+                    match_score = prev[j - 1] + MATCH_SCORE
+
+                # Bonus if the case matches
+                if matched_cased_mask:
+                    match_score += MATCHING_CASE_BONUS
+
+                # Bonus when matching on a capital letter
+                if (
+                    not is_prefix
+                    and haystack_is_uppercase
+                    and prev_haystack_is_lowercase
+                ):
+                    match_score += CAPITALIZATION_BONUS
+            else:
+                match_score = prev[j - 1] - MISMATCH_PENALTY
+
             # left
             delete_gap_penalty = (
                 GAP_OPEN_PENALTY if delete_gap_mask else GAP_EXTEND_PENALTY
@@ -45,14 +89,21 @@ def build_scores(needle, haystack):
             curr[j] = max_score
             max_val = max(curr[j], max_val)
 
+            prev_haystack_is_lowercase = haystack_is_lowercase
+
         prev = curr
         curr = [0] * num_cols
 
-    return max_val
+    max_score = max_val
+
+    if haystack == needle:
+        max_score += EXACT_MATCH_BONUS
+
+    return max_score
 
 
 def fuzzy_match(query, candidate):
-    return build_scores(candidate.lower(), query.lower())
+    return build_scores(candidate, query)
 
 
 def main():
