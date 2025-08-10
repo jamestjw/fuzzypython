@@ -1,8 +1,7 @@
 import argparse
+import bisect
 import os
 import pathlib
-
-from sortedcontainers import SortedList
 
 MATCH_SCORE = 12
 MISMATCH_PENALTY = 6
@@ -68,13 +67,14 @@ def main():
     if not search_directory.is_dir():
         raise Exception("invalid search directory")
 
-    results = SortedList()
+    results = []
     for root, _, files in os.walk(search_directory):
         for file in files:
             d = os.path.join(root, file)
             score = fuzzy_match(query, d)
             if score > 0:
-                results.add((score, d))
+                # lexical sort ensures that this is right
+                bisect.insort(results, (score, d))
 
     for _, d in results:
         print(d)
