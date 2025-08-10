@@ -4,33 +4,111 @@ import { argv } from "process";
 import { promises as fs } from "fs";
 import * as path from "path";
 
+const MATCH_SCORE = 12
+const MISMATCH_PENALTY = 6
+const GAP_OPEN_PENALTY = 5
+const GAP_EXTEND_PENALTY = 1
+const CAPITALIZATION_BONUS = 4
+const MATCHING_CASE_BONUS = 4
+const EXACT_MATCH_BONUS = 8
+const PREFIX_BONUS = 12
+const OFFSET_PREFIX_BONUS = 8
+
+function isAsciiAlphabetic(str: string) {
+  // This regex checks if the string contains ONLY a-z and A-Z characters
+  // from the beginning (^) to the end ($).
+  const regex = /^[a-zA-Z]+$/;
+  return regex.test(str);
+}
+
 function smithWaterman(
-  candidate: string,
-  query: string,
-  matchScore: number = 3,
-  gapCost: number = 2,
+  needle: string,
+  haystack: string,
 ) {
-  const a = candidate.toLowerCase();
-  const b = query.toLowerCase();
-  const num_rows = a.length + 1;
-  const num_cols = b.length + 1;
-  let prev: number[] = new Array(num_cols).fill(0);
-  let curr: number[] = new Array(num_cols).fill(0);
+  const a = needle.toLowerCase();
+  const b = haystack.toLowerCase();
+  const numRows = a.length + 1;
+  const numCols = b.length + 1;
+  let prev: number[] = new Array(numCols).fill(0);
+  let curr: number[] = new Array(numCols).fill(0);
   let maxVal = 0;
 
-  for (let i = 1; i < num_rows; i++) {
-    for (let j = 1; j < num_cols; j++) {
-      const match =
-        prev[j - 1] + (a[i - 1] === b[j - 1] ? matchScore : -matchScore);
-      const remove = prev[j] - gapCost;
-      const insert = curr[j - 1] - gapCost;
-      curr[j] = Math.max(match, remove, insert, 0);
+  for (let i = 1; i < numRows; i++) {
+    let needleChar = needle[i - 1]
+    const needleIsUppercase = needleChar.toUpperCase() == needleChar
+    needleChar = needleChar.toLowerCase()
+
+    let insertGapMask = true
+    let deletegapMask = true
+    let prevHaystackIsLowercase = false
+
+    for (let j = 1; j < numCols; j++) {
+      // Is first letter?
+      const isPrefix = j == 1
+      // Is the first letter some kind of delimiter like an underscore,
+      // and that we didn't match on it previously?
+      const isOffsetPrefix = (
+        j == 2
+        && prev[1] == 0
+        && !(isAsciiAlphabetic(haystack[0]))
+      )
+
+      let haystackChar = haystack[j - 1]
+      const haystackIsUppercase = haystackChar.toUpperCase() == haystack
+      const haystackIsLowercase = haystackChar.toLowerCase() == haystack
+      haystackChar = haystackChar.toLowerCase()
+
+      const matchedCasedMask = needleIsUppercase == haystackIsUppercase
+
+      let matchScore
+      if (needleChar == haystackChar) {
+        if (isPrefix)
+          matchScore = prev[j - 1] + MATCH_SCORE + PREFIX_BONUS
+        else if (isOffsetPrefix)
+          matchScore = prev[j - 1] + MATCH_SCORE + OFFSET_PREFIX_BONUS
+        else
+          matchScore = prev[j - 1] + MATCH_SCORE
+
+        // Bonus if the case matches
+        if (matchedCasedMask)
+          matchScore += MATCHING_CASE_BONUS
+
+        // Bonus when matching on a capital letter
+        if (
+          !isPrefix
+          && haystackIsUppercase
+          && prevHaystackIsLowercase
+        )
+          matchScore += CAPITALIZATION_BONUS
+      }
+      else matchScore = prev[j - 1] - MISMATCH_PENALTY
+
+      // left
+      const deleteGapPenalty: number = deletegapMask ? GAP_OPEN_PENALTY : GAP_EXTEND_PENALTY
+      const deleteScore = prev[j] - deleteGapPenalty
+
+      // up
+      const insertGapPenalty: number = insertGapMask ? GAP_OPEN_PENALTY : GAP_EXTEND_PENALTY
+      const insertScore = curr[j - 1] - insertGapPenalty
+
+      const maxScore = Math.max(matchScore, deleteScore, insertScore)
+
+      const match_mask = maxScore == matchScore
+      insertGapMask = (maxScore != insertScore) || match_mask
+      deletegapMask = (maxScore != deleteScore) || match_mask
+
+      curr[j] = maxScore;
+      maxVal = Math.max(maxScore, maxVal)
+
+      prevHaystackIsLowercase = haystackIsLowercase
     }
 
-    maxVal = Math.max(...curr, maxVal);
     prev = curr;
-    curr = new Array(num_cols).fill(0);
+    curr = new Array(numCols).fill(0);
   }
+
+  if (haystack == needle)
+    maxVal += EXACT_MATCH_BONUS
 
   return maxVal;
 }
