@@ -2,6 +2,7 @@ import argparse
 import bisect
 import os
 import pathlib
+import re
 
 MATCH_SCORE = 12
 MISMATCH_PENALTY = 6
@@ -12,6 +13,9 @@ MATCHING_CASE_BONUS = 4
 EXACT_MATCH_BONUS = 8
 PREFIX_BONUS = 12
 OFFSET_PREFIX_BONUS = 8
+DELIMITER_BONUS = 4
+
+DELIMITER_REGEX = re.compile(f" |/|\\.|,|_|-|:")
 
 
 def build_scores(needle, haystack):
@@ -25,6 +29,8 @@ def build_scores(needle, haystack):
         needle_is_uppercase = needle_char.isupper()
         needle_char = needle_char.lower()
 
+        delimiter_bonus_enabled = False
+        prev_haystack_is_delimiter = False
         insert_gap_mask = True
         delete_gap_mask = True
         prev_haystack_is_lowercase = False
@@ -36,13 +42,14 @@ def build_scores(needle, haystack):
             # and that we didn't match on it previously?
             is_offset_prefix = (
                 j == 2
-                and prev[0] == 0
+                and prev[1] == 0
                 and not (haystack[0].isalpha() and haystack[0].isascii())
             )
 
             haystack_char = haystack[j - 1]
             haystack_is_uppercase = haystack_char.isupper()
             haystack_is_lowercase = haystack_char.islower()
+            haystack_is_delimiter = bool(DELIMITER_REGEX.match(haystack_char))
             haystack_char = haystack_char.lower()
 
             matched_cased_mask = needle_is_uppercase == haystack_is_uppercase
@@ -54,6 +61,13 @@ def build_scores(needle, haystack):
                     match_score = prev[j - 1] + MATCH_SCORE + OFFSET_PREFIX_BONUS
                 else:
                     match_score = prev[j - 1] + MATCH_SCORE
+
+                if (
+                    prev_haystack_is_delimiter
+                    and delimiter_bonus_enabled
+                    and not haystack_is_delimiter
+                ):
+                    match_score += DELIMITER_BONUS
 
                 # Bonus if the case matches
                 if matched_cased_mask:
@@ -90,6 +104,11 @@ def build_scores(needle, haystack):
             max_val = max(curr[j], max_val)
 
             prev_haystack_is_lowercase = haystack_is_lowercase
+            prev_haystack_is_delimiter = haystack_is_delimiter
+            # This will only be enabled if we have seen a non-delimiter char,
+            # i.e. we don't want to apply the bonus if the string starts with a series
+            # of delimiter characters
+            delimiter_bonus_enabled |= not prev_haystack_is_delimiter
 
         prev = curr
         curr = [0] * num_cols

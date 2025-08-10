@@ -4,15 +4,18 @@ import { argv } from "process";
 import { promises as fs } from "fs";
 import * as path from "path";
 
-const MATCH_SCORE = 12
-const MISMATCH_PENALTY = 6
-const GAP_OPEN_PENALTY = 5
-const GAP_EXTEND_PENALTY = 1
-const CAPITALIZATION_BONUS = 4
-const MATCHING_CASE_BONUS = 4
-const EXACT_MATCH_BONUS = 8
-const PREFIX_BONUS = 12
-const OFFSET_PREFIX_BONUS = 8
+const MATCH_SCORE = 12;
+const MISMATCH_PENALTY = 6;
+const GAP_OPEN_PENALTY = 5;
+const GAP_EXTEND_PENALTY = 1;
+const CAPITALIZATION_BONUS = 4;
+const MATCHING_CASE_BONUS = 4;
+const EXACT_MATCH_BONUS = 8;
+const PREFIX_BONUS = 12;
+const OFFSET_PREFIX_BONUS = 8;
+const DELIMITER_BONUS = 4;
+
+const DELIMITERS = [" ", "/", ".", ",", "_", "-", ":"];
 
 function isAsciiAlphabetic(str: string) {
   // This regex checks if the string contains ONLY a-z and A-Z characters
@@ -21,94 +24,95 @@ function isAsciiAlphabetic(str: string) {
   return regex.test(str);
 }
 
-function smithWaterman(
-  needle: string,
-  haystack: string,
-) {
-  const a = needle.toLowerCase();
-  const b = haystack.toLowerCase();
-  const numRows = a.length + 1;
-  const numCols = b.length + 1;
+function smithWaterman(needle: string, haystack: string) {
+  const numRows = needle.length + 1;
+  const numCols = haystack.length + 1;
   let prev: number[] = new Array(numCols).fill(0);
   let curr: number[] = new Array(numCols).fill(0);
   let maxVal = 0;
 
   for (let i = 1; i < numRows; i++) {
-    let needleChar = needle[i - 1]
-    const needleIsUppercase = needleChar.toUpperCase() == needleChar
-    needleChar = needleChar.toLowerCase()
+    let needleChar = needle[i - 1];
+    const needleIsUppercase = needleChar.toUpperCase() == needleChar;
+    needleChar = needleChar.toLowerCase();
 
-    let insertGapMask = true
-    let deletegapMask = true
-    let prevHaystackIsLowercase = false
+    // Only enabled if we have already encountered a non-delimiter
+    // character in the haystack
+    let delimiterBonusEnabled = false;
+    let prevHaystackIsDelimiter = false;
+    let insertGapMask = true;
+    let deletegapMask = true;
+    let prevHaystackIsLowercase = false;
 
     for (let j = 1; j < numCols; j++) {
       // Is first letter?
-      const isPrefix = j == 1
+      const isPrefix = j == 1;
       // Is the first letter some kind of delimiter like an underscore,
       // and that we didn't match on it previously?
-      const isOffsetPrefix = (
-        j == 2
-        && prev[1] == 0
-        && !(isAsciiAlphabetic(haystack[0]))
-      )
+      const isOffsetPrefix =
+        j == 2 && prev[1] == 0 && !isAsciiAlphabetic(haystack[0]);
 
-      let haystackChar = haystack[j - 1]
-      const haystackIsUppercase = haystackChar.toUpperCase() == haystack
-      const haystackIsLowercase = haystackChar.toLowerCase() == haystack
-      haystackChar = haystackChar.toLowerCase()
+      let haystackChar = haystack[j - 1];
+      const haystackIsUppercase = haystackChar.toUpperCase() == haystackChar;
+      const haystackIsLowercase = haystackChar.toLowerCase() == haystackChar;
+      const haystackIsDelimiter = DELIMITERS.some((d) => d == haystackChar);
+      haystackChar = haystackChar.toLowerCase();
 
-      const matchedCasedMask = needleIsUppercase == haystackIsUppercase
+      const matchedCasedMask = needleIsUppercase == haystackIsUppercase;
 
-      let matchScore
+      let matchScore;
       if (needleChar == haystackChar) {
-        if (isPrefix)
-          matchScore = prev[j - 1] + MATCH_SCORE + PREFIX_BONUS
+        if (isPrefix) matchScore = prev[j - 1] + MATCH_SCORE + PREFIX_BONUS;
         else if (isOffsetPrefix)
-          matchScore = prev[j - 1] + MATCH_SCORE + OFFSET_PREFIX_BONUS
-        else
-          matchScore = prev[j - 1] + MATCH_SCORE
+          matchScore = prev[j - 1] + MATCH_SCORE + OFFSET_PREFIX_BONUS;
+        else matchScore = prev[j - 1] + MATCH_SCORE;
+
+        if (
+          prevHaystackIsDelimiter &&
+          delimiterBonusEnabled &&
+          !haystackIsDelimiter
+        )
+          matchScore += DELIMITER_BONUS;
 
         // Bonus if the case matches
-        if (matchedCasedMask)
-          matchScore += MATCHING_CASE_BONUS
+        if (matchedCasedMask) matchScore += MATCHING_CASE_BONUS;
 
         // Bonus when matching on a capital letter
-        if (
-          !isPrefix
-          && haystackIsUppercase
-          && prevHaystackIsLowercase
-        )
-          matchScore += CAPITALIZATION_BONUS
-      }
-      else matchScore = prev[j - 1] - MISMATCH_PENALTY
+        if (!isPrefix && haystackIsUppercase && prevHaystackIsLowercase)
+          matchScore += CAPITALIZATION_BONUS;
+      } else matchScore = prev[j - 1] - MISMATCH_PENALTY;
 
       // left
-      const deleteGapPenalty: number = deletegapMask ? GAP_OPEN_PENALTY : GAP_EXTEND_PENALTY
-      const deleteScore = prev[j] - deleteGapPenalty
+      const deleteGapPenalty: number = deletegapMask
+        ? GAP_OPEN_PENALTY
+        : GAP_EXTEND_PENALTY;
+      const deleteScore = prev[j] - deleteGapPenalty;
 
       // up
-      const insertGapPenalty: number = insertGapMask ? GAP_OPEN_PENALTY : GAP_EXTEND_PENALTY
-      const insertScore = curr[j - 1] - insertGapPenalty
+      const insertGapPenalty: number = insertGapMask
+        ? GAP_OPEN_PENALTY
+        : GAP_EXTEND_PENALTY;
+      const insertScore = curr[j - 1] - insertGapPenalty;
 
-      const maxScore = Math.max(matchScore, deleteScore, insertScore)
+      const maxScore = Math.max(matchScore, deleteScore, insertScore);
 
-      const match_mask = maxScore == matchScore
-      insertGapMask = (maxScore != insertScore) || match_mask
-      deletegapMask = (maxScore != deleteScore) || match_mask
+      const match_mask = maxScore == matchScore;
+      insertGapMask = maxScore != insertScore || match_mask;
+      deletegapMask = maxScore != deleteScore || match_mask;
 
       curr[j] = maxScore;
-      maxVal = Math.max(maxScore, maxVal)
+      maxVal = Math.max(maxScore, maxVal);
 
-      prevHaystackIsLowercase = haystackIsLowercase
+      prevHaystackIsLowercase = haystackIsLowercase;
+      prevHaystackIsDelimiter = haystackIsDelimiter;
+      delimiterBonusEnabled = delimiterBonusEnabled || !prevHaystackIsDelimiter;
     }
 
     prev = curr;
     curr = new Array(numCols).fill(0);
   }
 
-  if (haystack == needle)
-    maxVal += EXACT_MATCH_BONUS
+  if (haystack == needle) maxVal += EXACT_MATCH_BONUS;
 
   return maxVal;
 }
